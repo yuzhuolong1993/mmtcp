@@ -16,6 +16,7 @@
 #include <sys/queue.h>
 #include <assert.h>
 #include <limits.h>
+#define RTE_LIBRTE_PDUMP
 #ifdef RTE_LIBRTE_PDUMP
 #include <rte_pdump.h>
 #endif
