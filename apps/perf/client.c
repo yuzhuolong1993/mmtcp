@@ -147,7 +147,7 @@ main(int argc, char **argv)
 		sec_to_send = atoi(argv[4]);
 
 	} else if (strncmp(argv[1], "wait", 4) == 0) {
-		if (argc < 4) {
+		if (argc < 3) {
 			print_usage(WAIT_MODE);
 			return -1;
 		}
@@ -155,10 +155,10 @@ main(int argc, char **argv)
 		mode = WAIT_MODE;
 		DEBUG("Wait mode");
 		
-		saddr.sin_family = AF_INET;
-		saddr.sin_addr.s_addr = inet_addr(argv[2]);
-		saddr.sin_port = htons(atoi(argv[3]));
-		sec_to_send = atoi(argv[4]);
+		// saddr.sin_family = AF_INET;
+		// saddr.sin_addr.s_addr = inet_addr(argv[2]);
+		// saddr.sin_port = htons(atoi(argv[3]));
+		sec_to_send = atoi(argv[2]);
 		
 	} else {
 		ERROR("Unknown mode \"%s\"", argv[1]);
