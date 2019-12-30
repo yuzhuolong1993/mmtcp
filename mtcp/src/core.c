@@ -835,7 +835,7 @@ RunMainLoop(struct mtcp_thread_context *ctx)
 		}
 
 		if (mtcp->flow_cnt > 0) {
-			/* hadnle stream queues  */
+			/* handle stream queues  */
 			HandleApplicationCalls(mtcp, ts);
 		}
 

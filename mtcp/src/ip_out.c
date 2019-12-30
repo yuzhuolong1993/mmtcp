@@ -51,6 +51,7 @@ IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol,
 		return NULL;
 
 	haddr = GetDestinationHWaddr(daddr, is_external);
+
 	if (!haddr) {
 #if 0
 		uint8_t *da = (uint8_t *)&daddr;
@@ -120,6 +121,7 @@ IPOutput(struct mtcp_manager *mtcp, tcp_stream *stream, uint16_t tcplen)
 	}
 
 	haddr = GetDestinationHWaddr(stream->daddr, stream->is_external);
+
 	if (!haddr) {
 #if 0
 		uint8_t *da = (uint8_t *)&stream->daddr;

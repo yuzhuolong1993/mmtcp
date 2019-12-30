@@ -1,4 +1,6 @@
+# macOS Files
 .DS_Store
+
 # mtcp-specific files
 Makefile
 autom4te.cache/

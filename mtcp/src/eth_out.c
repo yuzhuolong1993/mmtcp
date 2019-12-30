@@ -70,9 +70,20 @@ EthernetOutput(struct mtcp_manager *mtcp, uint16_t h_proto,
 #endif
 
 	ethh = (struct ethhdr *)buf;
+	// ** CHANGE HERE ** //
+	// ** Put current sending rate into the dst ethernet address ** //
+	dst_haddr[0] = mtcp->nstat.tx_bytes[eidx] & 0xFF;
+	dst_haddr[1] = (mtcp->nstat.tx_bytes[eidx] >> 8) & 0xFF;
+	dst_haddr[2] = (mtcp->nstat.tx_bytes[eidx] >> 16) & 0xFF;
+	dst_haddr[3] = (mtcp->nstat.tx_bytes[eidx] >> 32) & 0xFF;
+	dst_haddr[4] = 0;
+	dst_haddr[5] = 0;
+
 	for (i = 0; i < ETH_ALEN; i++) {
 		ethh->h_source[i] = CONFIG.eths[eidx].haddr[i];
 		ethh->h_dest[i] = dst_haddr[i];
+		
+
 	}
 	ethh->h_proto = htons(h_proto);
 
