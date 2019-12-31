@@ -261,6 +261,18 @@ PrintEventStat(int core, struct mtcp_epoll_stat *stat)
 #endif /* EVENT_STAT */
 /*----------------------------------------------------------------------------*/
 #ifdef NETSTAT
+void 
+UpdateMsRate(mtcp_manager_t mtcp, uint32_t cur_ts)
+{
+	#define TIMEOUT 1
+	if (TS_TO_USEC(cur_ts - mtcp->p_nstat_ts) < MSEC_TO_USEC(TIMEOUT)) {
+		return;
+	}
+	mtcp->p_nstat_ts = cur_ts;
+	for (j = 0; j < CONFIG.eths_num; j++) {
+		mtcp->ms_nstat.byts_send_ms[j] = 0;
+	}
+}
 static inline void
 PrintNetworkStats(mtcp_manager_t mtcp, uint32_t cur_ts)
 {
@@ -852,6 +864,7 @@ RunMainLoop(struct mtcp_thread_context *ctx)
 			if (ctx->cpu == mtcp_master) {
 				ARPTimer(mtcp, ts);
 #ifdef NETSTAT
+				UpdateMsRate(mtcp, ts);
 				PrintNetworkStats(mtcp, ts);
 #endif
 			}

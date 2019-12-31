@@ -16,7 +16,7 @@
 /* for delay funcs */
 #include <rte_cycles.h>
 #include <rte_errno.h>
-#define ENABLE_STATS_IOCTL		1
+#define ENABLE_STATS_IOCTL
 #ifdef ENABLE_STATS_IOCTL
 /* for close */
 #include <unistd.h>
@@ -317,6 +317,14 @@ dpdk_release_pkt(struct mtcp_thread_context *ctxt, int ifidx, unsigned char *pkt
 int
 dpdk_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 {
+
+// #ifdef MS_RATE_CAL
+// 	static uint32_t pkts_send_ms = 0;
+// 	static uint64_t cur_tsc = rte_rdtsc();
+// 	static uint64_t ms_tsc = rte_get_tsc_hz() / 1000;
+// 	static uint64_t next_ms_tsc = rte_rdtsc() + rte_get_tsc_hz() / 1000;
+// #endif
+
 	struct dpdk_private_context *dpc;
 #ifdef NETSTAT
 	mtcp_manager_t mtcp;
@@ -396,6 +404,13 @@ dpdk_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 	return ret;
 }
 /*----------------------------------------------------------------------------*/
+void
+ms_rate_cal_init(uint64_t* cur_tsc, uint64_t* ms_tsc, uint64_t* next_ms_tsc) {
+	(* cur_tsc) = rte_rdtsc();
+	(* ms_tsc) = rte_get_tsc_hz() / 10;
+	(* next_ms_tsc) = rte_rdtsc() + rte_get_tsc_hz() / 10;
+}
+
 uint8_t *
 dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 {
@@ -410,6 +425,33 @@ dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 	dpc = (struct dpdk_private_context *) ctxt->io_private_context;
 #ifdef NETSTAT
 	mtcp = ctxt->mtcp_manager;
+#endif
+#ifdef NETSTAT
+#ifdef MS_RATE_CAL
+	static char first_time_access = 1;
+	// static uint32_t byts_send_ms = 0;
+	// static uint32_t last_bytes_send_ms = 0;
+	static uint64_t cur_tsc = 0;
+	static uint64_t ms_tsc = 0;
+	static uint64_t next_ms_tsc = 0;
+
+	if (first_time_access == 1) {
+		first_time_access = 0;
+		ms_rate_cal_init(&cur_tsc, &ms_tsc, &next_ms_tsc);
+		for (int i = 0; i < MAX_DEVICES; i ++) {
+			mtcp->ms_nstat.byts_send_ms[i] = 0;
+			mtcp->ms_nstat.pkts_send_ms[i] = 0;
+		}
+	}
+
+	cur_tsc = rte_rdtsc();
+	if (cur_tsc > next_ms_tsc) {
+		// last_bytes_send_ms = byts_send_ms;
+		mtcp->ms_nstat.byts_send_ms[ifidx] = 0;
+		next_ms_tsc += ms_tsc;
+		// next_ms_tsc = cur_tsc + ms_tsc;
+	}
+#endif
 #endif
 
 	/* sanity check */
@@ -427,6 +469,12 @@ dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 
 #ifdef NETSTAT
 	mtcp->nstat.tx_bytes[ifidx] += pktsize + ETHER_OVR;
+#endif
+#ifdef NETSTAT
+#ifdef MS_RATE_CAL
+	// byts_send_ms += pktsize + ETHER_OVR;
+	mtcp->ms_nstat.byts_send_ms[ifidx] += pktsize + ETHER_OVR;
+#endif
 #endif
 
 	/* increment the len_of_mbuf var */

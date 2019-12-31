@@ -299,7 +299,9 @@ struct mtcp_manager
 	struct time_stat rtstat;
 #endif /* NETSTAT */
 	struct io_module_func *iom;
-
+#ifdef MS_RATE_CAL
+	struct ms_net_stat ms_nstat;
+#endif /* MS_RATE_CAL */
 #if USE_CCP
 	int from_ccp;
 	int to_ccp;
