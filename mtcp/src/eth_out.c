@@ -72,12 +72,14 @@ EthernetOutput(struct mtcp_manager *mtcp, uint16_t h_proto,
 	ethh = (struct ethhdr *)buf;
 	// ** CHANGE HERE ** //
 	// ** Put current sending rate into the dst ethernet address ** //
-	dst_haddr[0] = (mtcp->ms_nstat.byts_send_ms[eidx]) & 0xFF;
-	dst_haddr[1] = (mtcp->ms_nstat.byts_send_ms[eidx] >> 8) & 0xFF;
-	dst_haddr[2] = (mtcp->ms_nstat.byts_send_ms[eidx] >> 16) & 0xFF;
-	dst_haddr[3] = (mtcp->ms_nstat.byts_send_ms[eidx] >> 24) & 0xFF;
-	dst_haddr[4] = 0;
-	dst_haddr[5] = 0;
+	uint32_t ntohl_bpms;
+	ntohl_bpms = ntohl(mtcp->ms_nstat.byts_send_ms[eidx]);
+	dst_haddr[0] = 0;
+	dst_haddr[1] = 0;
+	dst_haddr[2] = (ntohl_bpms) & 0xFF;
+	dst_haddr[3] = (ntohl_bpms >> 8) & 0xFF;
+	dst_haddr[4] = (ntohl_bpms >> 16) & 0xFF;
+	dst_haddr[5] = (ntohl_bpms >> 24) & 0xFF;
 
 	for (i = 0; i < ETH_ALEN; i++) {
 		ethh->h_source[i] = CONFIG.eths[eidx].haddr[i];
