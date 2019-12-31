@@ -407,8 +407,8 @@ dpdk_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 void
 ms_rate_cal_init(uint64_t* cur_tsc, uint64_t* ms_tsc, uint64_t* next_ms_tsc) {
 	(* cur_tsc) = rte_rdtsc();
-	(* ms_tsc) = rte_get_tsc_hz() / 10;
-	(* next_ms_tsc) = rte_rdtsc() + rte_get_tsc_hz() / 10;
+	(* ms_tsc) = rte_get_tsc_hz() / 1000 * 61; // 61.4
+	(* next_ms_tsc) = rte_rdtsc() + rte_get_tsc_hz() / 1000 * 61;
 }
 
 uint8_t *

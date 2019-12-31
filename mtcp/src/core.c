@@ -269,7 +269,7 @@ UpdateMsRate(mtcp_manager_t mtcp, uint32_t cur_ts)
 		return;
 	}
 	mtcp->p_nstat_ts = cur_ts;
-	for (j = 0; j < CONFIG.eths_num; j++) {
+	for (int j = 0; j < CONFIG.eths_num; j++) {
 		mtcp->ms_nstat.byts_send_ms[j] = 0;
 	}
 }
@@ -864,7 +864,7 @@ RunMainLoop(struct mtcp_thread_context *ctx)
 			if (ctx->cpu == mtcp_master) {
 				ARPTimer(mtcp, ts);
 #ifdef NETSTAT
-				UpdateMsRate(mtcp, ts);
+				// UpdateMsRate(mtcp, ts);
 				PrintNetworkStats(mtcp, ts);
 #endif
 			}
