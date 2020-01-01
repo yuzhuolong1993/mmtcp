@@ -37,6 +37,13 @@ GetOutputInterface(uint32_t daddr, uint8_t *is_external)
 	return nif;
 }
 /*----------------------------------------------------------------------------*/
+#ifdef MS_RATE_CAL // ** put in flow_id actually
+uint32_t
+get_tenant(uint32_t flow_id) {
+	static uint32_t tenant_group[13] = {0, 1,1,1,1, 2,2, 3,3, 4};
+	return tenant_group[flow_id];
+}
+#endif
 uint8_t *
 IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol, 
 		uint16_t ip_id, uint32_t saddr, uint32_t daddr, uint16_t payloadlen)
@@ -64,8 +71,18 @@ IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol,
 		return NULL;
 	}
 	
+#ifdef MS_RATE_CAL // ** put in flow_id actually
+	uint32_t flow_id = 0;
+	uint32_t tenant_id = 0;
+	flow_id = daddr & 0xFF;
+	tenant_id = get_tenant(flow_id);
+	iph = (struct iphdr *)EthernetOutputWithFlowID(mtcp, 
+			ETH_P_IP, nif, haddr, payloadlen + IP_HEADER_LEN, flow_id, tenant_id);
+#else
 	iph = (struct iphdr *)EthernetOutput(mtcp, 
 			ETH_P_IP, nif, haddr, payloadlen + IP_HEADER_LEN);
+#endif
+
 	if (!iph) {
 		return NULL;
 	}
@@ -136,8 +153,19 @@ IPOutput(struct mtcp_manager *mtcp, tcp_stream *stream, uint16_t tcplen)
 		return NULL;
 	}
 	
+	
+#ifdef MS_RATE_CAL // ** put in flow_id actually
+	uint32_t flow_id = 0;
+	uint32_t tenant_id = 0;
+	flow_id = stream->daddr & 0xFF;
+	tenant_id = get_tenant(flow_id);
+	iph = (struct iphdr *)EthernetOutputWithFlowID(mtcp, ETH_P_IP, 
+			stream->sndvar->nif_out, haddr, tcplen + IP_HEADER_LEN, flow_id, tenant_id);
+#else
 	iph = (struct iphdr *)EthernetOutput(mtcp, ETH_P_IP, 
 			stream->sndvar->nif_out, haddr, tcplen + IP_HEADER_LEN);
+#endif
+
 	if (!iph) {
 		return NULL;
 	}
