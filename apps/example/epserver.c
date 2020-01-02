@@ -151,10 +151,22 @@ SendUntilAvailable(struct thread_context *ctx, int sockid, struct server_vars *s
 
 	sent = 0;
 	ret = 1;
-	while (ret > 0) {
+	int count;
+	count = 0;
+	// while (ret > 0) {
+	while (1) {
 		len = MIN(SNDBUF_SIZE, sv->fsize - sv->total_sent);
 		if (len <= 0) {
-			break;
+			// ** CHANGE HERE ** //
+			// ** keep sending for a couple of times ** //
+			sv->total_sent = 0;
+			len = MIN(SNDBUF_SIZE, sv->fsize - sv->total_sent);
+			count += 1;
+			if (count == 10) {
+				break;
+			}
+			// break;
+			// ** CHANGE ENDS ** //
 		}
 		ret = mtcp_write(ctx->mctx, sockid,  
 				fcache[sv->fidx].file + sv->total_sent, len);
@@ -162,9 +174,19 @@ SendUntilAvailable(struct thread_context *ctx, int sockid, struct server_vars *s
 			TRACE_APP("Connection closed with client.\n");
 			break;
 		}
+		// ** CHANGE HERE ** //
+		else if (ret == 0) {
+			sv->total_sent = 0;
+			count += 1;
+			if (count == 10) {
+				break;
+			}
+		}
+		// ** CHANGE ENDS ** //
 		TRACE_APP("Socket %d: mtcp_write try: %d, ret: %d\n", sockid, len, ret);
 		sent += ret;
 		sv->total_sent += ret;
+		fprintf(stderr, "count:%d, ret:%d, total_sent:%ld, fsize:%ld\n", count, ret, sv->total_sent, sv->fsize);
 	}
 
 	if (sv->total_sent >= fcache[sv->fidx].size) {
@@ -265,7 +287,7 @@ HandleReadEvent(struct thread_context *ctx, int sockid, struct server_vars *sv)
 			"Server: Webserver on Middlebox TCP (Ubuntu)\r\n"
 			"Content-Length: %ld\r\n"
 			"Connection: %s\r\n\r\n", 
-			scode, StatusCodeToString(scode), t_str, sv->fsize, keepalive_str);
+			scode, StatusCodeToString(scode), t_str, (sv->fsize) * 10, keepalive_str);
 	len = strlen(response);
 	TRACE_APP("Socket %d HTTP Response: \n%s", sockid, response);
 	sent = mtcp_write(ctx->mctx, sockid, response, len);
@@ -740,6 +762,7 @@ main(int argc, char **argv)
 	TRACE_INFO("Application initialization finished.\n");
 
 	for (i = ((process_cpu == -1) ? 0 : process_cpu); i < core_limit; i++) {
+		fprintf(stderr, "i:%d\n", i);
 		cores[i] = i;
 		done[i] = FALSE;
 		
