@@ -440,6 +440,7 @@ dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 		ms_rate_cal_init(&cur_tsc, &ms_tsc, &next_ms_tsc);
 		for (int i = 0; i < MAX_DEVICES; i ++) {
 			mtcp->ms_nstat.byts_send_ms[i] = 0;
+			mtcp->ms_nstat.current_bytes_send_ms[i] = 0;
 			mtcp->ms_nstat.pkts_send_ms[i] = 0;
 		}
 	}
@@ -447,7 +448,10 @@ dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 	cur_tsc = rte_rdtsc();
 	if (cur_tsc > next_ms_tsc) {
 		// last_bytes_send_ms = byts_send_ms;
-		mtcp->ms_nstat.byts_send_ms[ifidx] = 0;
+		mtcp->ms_nstat.current_bytes_send_ms[ifidx] = 0;
+		mtcp->ms_nstat.byts_send_ms[ifidx] = mtcp->ms_nstat.byts_send_ms[ifidx] * 0.8 + mtcp->ms_nstat.current_byts_send_ms[ifidx] * 0.2 
+		// mtcp->ms_nstat.byts_send_ms[ifidx] = 0;
+
 		next_ms_tsc += ms_tsc;
 		// next_ms_tsc = cur_tsc + ms_tsc;
 	}
@@ -473,7 +477,8 @@ dpdk_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 #ifdef NETSTAT
 #ifdef MS_RATE_CAL
 	// byts_send_ms += pktsize + ETHER_OVR;
-	mtcp->ms_nstat.byts_send_ms[ifidx] += pktsize + ETHER_OVR;
+	mtcp->ms_nstat.current_byts_send_ms[ifidx] += pktsize + ETHER_OVR;
+	mtcp->ms_nstat.byts_send_ms[ifidx] = mtcp->ms_nstat.byts_send_ms[ifidx] * 0.8 + mtcp->ms_nstat.current_byts_send_ms[ifidx] * 0.2
 #endif
 #endif
 

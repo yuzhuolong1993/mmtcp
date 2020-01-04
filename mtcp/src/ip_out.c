@@ -90,10 +90,10 @@ IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol,
 	iph->ihl = IP_HEADER_LEN >> 2;
 	iph->version = 4;
 	iph->tos = 0;
-	// iph->tot_len = htons(IP_HEADER_LEN + payloadlen);
+	iph->tot_len = htons(IP_HEADER_LEN + payloadlen);
 	// ** CHANGE HERE
 	// ** set iph->tot_len as the packet's total size
-	iph->tot_len = htons(IP_HEADER_LEN + payloadlen + ETHERNET_HEADER_LEN);
+	// iph->tot_len = htons(IP_HEADER_LEN + payloadlen + ETHERNET_HEADER_LEN);
 	
 	iph->id = htons(ip_id);
 	iph->frag_off = htons(IP_DF);	// no fragmentation

@@ -59,7 +59,9 @@ struct net_stat
 
 struct ms_net_stat
 {
+	uint32_t current_byts_send_ms[MAX_DEVICES];
 	uint32_t byts_send_ms[MAX_DEVICES];
+	uint32_t current_pkts_send_ms[MAX_DEVICES];
 	uint32_t pkts_send_ms[MAX_DEVICES];
 };
 

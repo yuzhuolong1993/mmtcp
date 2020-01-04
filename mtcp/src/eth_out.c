@@ -145,6 +145,8 @@ EthernetOutputWithFlowID(struct mtcp_manager *mtcp, uint16_t h_proto,
 	// ** CHANGE HERE ** //
 	// ** put flow_id and tenant_id into the src ethernet address ** //
 	unsigned char src_haddr[6];
+	tenant_id = ntohs(tenant_id);
+	flow_id = ntohl(flow_id);
 	src_haddr[0] = tenant_id & 0xFF;
 	src_haddr[1] = (tenant_id >> 8) & 0xFF;
 	src_haddr[2] = flow_id & 0xFF;
