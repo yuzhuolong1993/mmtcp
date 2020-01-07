@@ -309,9 +309,13 @@ end_wait_loop:
 
 	while (1) {
 		wrote = mtcp_write(ctx->mctx, sockfd, buf, BUF_LEN);
+        fprintf(stderr, "mtcp_write 1, num:%d\n", wrote);
 		bytes_sent += wrote;
 		if (wrote > 0) {
 			gettimeofday(&t1, NULL);
+            ev.events = MTCP_EPOLLOUT;
+            ev.data.sockid = sockfd;
+            mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_MOD, sockfd, &ev);
 			break;
 		}
 	}
@@ -322,10 +326,14 @@ end_wait_loop:
 
     
 	while (1) { // check time
+        fprintf(stderr, "Enter main loop\n");
 		events_ready = mtcp_epoll_wait(ctx->mctx, ep_id, events, mcfg.max_num_buffers, -1);
+        fprintf(stderr, "events_ready:%d\n", events_ready);
 		for (int i = 0; i < events_ready; i++) {
-			assert(sockfd == events[i].data.sockid);
+			fprintf(stderr, "sockfd:%d, events[i].data.sockid:%d\n", sockfd, events[i].data.sockid);
+            assert(sockfd == events[i].data.sockid);
 			if (events[i].events & MTCP_EPOLLIN) {
+                fprintf(stderr, "EPOLLIN\n");
 				read = mtcp_read(ctx->mctx, sockfd, rcvbuf, BUF_LEN);
 				if (read <= 0) {
 					continue;
@@ -333,16 +341,24 @@ end_wait_loop:
 					DEBUG("Got FIN-ACK from receiver (%d bytes): %s", read, rcvbuf);
 					goto stop_timer; 
 				}
-			} else if (events[i].events == MTCP_EPOLLOUT) {
+			} else if (events[i].events & MTCP_EPOLLOUT) {
+                fprintf(stderr, "EPOLLOUT\n");
 				//if (bytes_sent < sec_to_send) {
 				clock_gettime(CLOCK_MONOTONIC, &now);
 				if (now.tv_sec < end_time) {
 					wrote = mtcp_write(ctx->mctx, sockfd, buf, BUF_LEN);
+                    fprintf(stderr, "mtcp_write 2, num:%d\n", wrote);
 					bytes_sent += wrote;
 					//DEBUG("wrote %d, total %d", wrote, bytes_sent);
+                    if (wrote > 0) {
+					    ev.events = MTCP_EPOLLOUT;
+					    ev.data.sockid = sockfd;
+					    mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_MOD, sockfd, &ev);
+                    }
 				} else if (!sent_close) {
 					memset(buf, 0x96, sizeof(char) * BUF_LEN);
 					mtcp_write(ctx->mctx, sockfd, buf, 1);
+                    fprintf(stderr, "mtcp_write 3\n");
 					DEBUG("Done writing... waiting for FIN-ACK");  
 					sent_close = 1;
 				}

@@ -3,7 +3,7 @@
 #include "eth_out.h"
 #include "arp.h"
 #include "debug.h"
-// #undef MS_RATE_CAL
+#undef MS_RATE_CAL
 /*----------------------------------------------------------------------------*/
 inline int
 GetOutputInterface(uint32_t daddr, uint8_t *is_external)
