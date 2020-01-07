@@ -246,6 +246,7 @@ HandleRTO(mtcp_manager_t mtcp, uint32_t cur_ts, tcp_stream *cur_stream)
 	//cur_stream->sndvar->ts_rto = cur_ts + cur_stream->sndvar->rto;
 
 	/* reduce congestion window and ssthresh */
+// #ifdef RTO_PUNISH
 	cur_stream->sndvar->ssthresh = MIN(cur_stream->sndvar->cwnd, cur_stream->sndvar->peer_wnd) / 2;
 	if (cur_stream->sndvar->ssthresh < (2 * cur_stream->sndvar->mss)) {
 		cur_stream->sndvar->ssthresh = cur_stream->sndvar->mss * 2;
@@ -253,6 +254,7 @@ HandleRTO(mtcp_manager_t mtcp, uint32_t cur_ts, tcp_stream *cur_stream)
 	cur_stream->sndvar->cwnd = cur_stream->sndvar->mss;
 	TRACE_CONG("Stream %d Timeout. cwnd: %u, ssthresh: %u\n", 
 			cur_stream->id, cur_stream->sndvar->cwnd, cur_stream->sndvar->ssthresh);
+// #endif
 
 #if RTM_STAT
 	/* update retransmission stats */

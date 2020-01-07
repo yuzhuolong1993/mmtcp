@@ -3,7 +3,7 @@
 #include "eth_out.h"
 #include "arp.h"
 #include "debug.h"
-
+// #undef MS_RATE_CAL
 /*----------------------------------------------------------------------------*/
 inline int
 GetOutputInterface(uint32_t daddr, uint8_t *is_external)
@@ -94,7 +94,7 @@ IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol,
 	// ** CHANGE HERE
 	// ** set iph->tot_len as the packet's total size
 	// iph->tot_len = htons(IP_HEADER_LEN + payloadlen + ETHERNET_HEADER_LEN);
-	
+
 	iph->id = htons(ip_id);
 	iph->frag_off = htons(IP_DF);	// no fragmentation
 	iph->ttl = 64;

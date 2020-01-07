@@ -444,12 +444,13 @@ ProcessACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 
 		/* update congestion control variables */
 		/* ssthresh to half of min of cwnd and peer wnd */
+// #ifdef RTO_PUNISH
 		sndvar->ssthresh = MIN(sndvar->cwnd, sndvar->peer_wnd) / 2;
 		if (sndvar->ssthresh < 2 * sndvar->mss) {
 			sndvar->ssthresh = 2 * sndvar->mss;
 		}
 		sndvar->cwnd = sndvar->ssthresh + 3 * sndvar->mss;
-
+// #endif
 		TRACE_CONG("fast retrans: cwnd = ssthresh(%u)+3*mss = %u\n",
                                 sndvar->ssthresh / sndvar->mss,
                                 sndvar->cwnd / sndvar->mss);

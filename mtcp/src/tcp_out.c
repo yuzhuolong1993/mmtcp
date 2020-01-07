@@ -537,7 +537,9 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 			continue;
 		}
 #endif
-
+		// // ** CHANGE HERE
+		// // ** disable congestion controll???
+		// sndvar->cwnd = sndvar->peer_wnd;
 		remaining_window = MIN(sndvar->cwnd, sndvar->peer_wnd)
 			               - (seq - sndvar->snd_una);
 		/* if there is no space in the window */
