@@ -341,7 +341,8 @@ HandleReadEvent(thread_context_t ctx, int sockid, struct wget_vars *wv)
 
 	rd = 1;
 	while (rd > 0) {
-		rd = mtcp_read(mctx, sockid, buf, BUF_SIZE);
+		fprintf(stderr, "mtcp read start\n");
+		rd = mtcp_read(mctx, sockid, buf, BUF_LEN);
 		if (rd <= 0)
 			break;
 		ctx->stat.reads += rd;

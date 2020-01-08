@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,33 +61,16 @@
 
 #define SEND_MODE 		1
 #define WAIT_MODE		2
-
-static pthread_t app_thread[MAX_CPUS];
-static char *conf_file = NULL;
-static int backlog = -1;
-static int port_number = 9000;
+#ifdef MDEBUG
+#define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( 0 )
+#else
+#define DEBUG_PRINT(...) do{ } while ( 0 )
+#endif
 /*----------------------------------------------------------------------------*/
 struct thread_context
 {
 	int core;
 	mctx_t mctx;
-};
-struct wget_vars
-{
-	int request_sent;
-
-	char response[HTTP_HEADER_LEN];
-	int resp_len;
-	int headerset;
-	uint32_t header_len;
-	uint64_t file_len;
-	uint64_t recv;
-	uint64_t write;
-
-	struct timeval t_start;
-	struct timeval t_end;
-	
-	int fd;
 };
 /*----------------------------------------------------------------------------*/
 void
@@ -107,314 +91,305 @@ print_usage(int mode)
 	}
 }
 /*----------------------------------------------------------------------------*/
-thread_context_t 
-CreateContext(int core)
-{
-	thread_context_t ctx;
-
-	ctx = (thread_context_t)calloc(1, sizeof(struct thread_context));
-	if (!ctx) {
-		perror("malloc");
-		TRACE_ERROR("Failed to allocate memory for thread context.\n");
-		return NULL;
-	}
-	ctx->core = core;
-
-	ctx->mctx = mtcp_create_context(core);
-	if (!ctx->mctx) {
-		TRACE_ERROR("Failed to create mtcp context.\n");
-		free(ctx);
-		return NULL;
-	}
-
-	return ctx;
-}
-/*----------------------------------------------------------------------------*/
-static inline int 
-CreateConnection(thread_context_t ctx)
-{
-	mctx_t mctx = ctx->mctx;
-	struct mtcp_epoll_event ev;
-	struct sockaddr_in addr;
-	int sockid;
-	int ret;
-
-	sockid = mtcp_socket(mctx, AF_INET, SOCK_STREAM, 0);
-	if (sockid < 0) {
-		TRACE_INFO("Failed to create socket!\n");
-		return -1;
-	}
-	memset(&ctx->wvars[sockid], 0, sizeof(struct wget_vars));
-	ret = mtcp_setsock_nonblock(mctx, sockid);
-	if (ret < 0) {
-		TRACE_ERROR("Failed to set socket in nonblocking mode.\n");
-		#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(-1);
-	}
-
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = daddr;
-	addr.sin_port = dport;
-	
-	ret = mtcp_connect(mctx, sockid, 
-			(struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-	if (ret < 0) {
-		if (errno != EINPROGRESS) {
-			perror("mtcp_connect");
-			mtcp_close(mctx, sockid);
-			return -1;
-		}
-	}
-
-	ctx->started++;
-	ctx->pending++;
-	ctx->stat.connects++;
-
-	ev.events = MTCP_EPOLLOUT;
-	ev.data.sockid = sockid;
-	mtcp_epoll_ctl(mctx, ctx->ep, MTCP_EPOLL_CTL_ADD, sockid, &ev);
-
-	return sockid;
-}
-/*----------------------------------------------------------------------------*/
-static int
-SendData(struct thread_context *ctx, int sockid, struct client_vars *sv)
-{
-	int ret;
-	int sent;
-
-	if (sv->done) {
-		return 0;
-	}
-
-	while (1) {
-		ret = mtcp_write(ctx->mctx, sockid,  
-				fcache[sv->fidx].file + sv->total_sent, len);
-		
-	}
-}
-/*----------------------------------------------------------------------------*/
-void *
-RunWgetMain(void *arg)
-{
-	thread_context_t ctx;
-	mctx_t mctx;
-	int core;
-
-	core = *(int *)arg;
-	mtcp_core_affinitize(core);
-	ctx = CreateContext(core);
-	if (!ctx) {
-		return NULL;
-	}
-	mctx = ctx->mctx;
-	g_stat[core] = &ctx->stat;
-	srand(time(NULL));
-
-	mtcp_init_rss(mctx, saddr, IP_RANGE, daddr, dport);
-
-	n = flows[core];
-	if (n == 0) {
-		TRACE_DBG("Application thread %d finished.\n", core);
-		pthread_exit(NULL);
-		return NULL;
-	}
-
-	ctx->target = n;
-
-	daddr_in.s_addr = daddr;
-	fprintf(stderr, "Thread %d handles %d flows. connecting to %s:%u\n", 
-			core, n, inet_ntoa(daddr_in), ntohs(dport));
-
-	/* Initialization */
-	maxevent = max_fds * 3;
-	ep = mtcp_epoll_create(mctx, maxevents);
-	if (ep < 0) {
-		TRACE_ERROR("Failed to create epoll struct!n");
-#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(EXIT_FAILURE);
-	}
-
-	events = (struct mtcp_epoll_event *)
-			calloc(maxevents, sizeof(struct mtcp_epoll_event));
-	if (!events) {
-		TRACE_ERROR("Failed to allocate events!\n");
-#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(EXIT_FAILURE);
-	}
-
-	ctx->ep = ep;
-
-	wvars = (struct client_vars *)calloc(max_fds, sizeof(struct client_vars));
-	if (!wvars) {
-		TRACE_ERROR("Failed to create wget variables!\n");
-#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(EXIT_FAILURE);
-	}
-
-	ctx->wvars = wvars;
-	ctx->started = ctx->done = ctx->pending = 0;
-	ctx->errors = ctx->incompletes = 0;
-
-	gettimeofday(&cur_tv, NULL);
-	prev_tv = cur_tv;
-
-	// while (!done[core]) {
-	while (1) {
-		gettimeofday(&cur_tv, NULL);
-
-		if (core == 0 && cur_tv.tv_sec > prev_tv.tv_sec) {
-		  	PrintStats();
-			prev_tv = cur_tv;
-		}
-
-		while (ctx->pending < concurrency && ctx->started < ctx->target) {
-			if (CreateConnection(ctx) < 0) {
-				done[core] = TRUE;
-				break;
-			}
-		}
-
-		nevents = mtcp_epoll_wait(mctx, ep, events, maxevents, -1);
-		ctx->stat.waits++;
-
-		if (nevents < 0) {
-			if (errno != EINTR) {
-				TRACE_ERROR("mtcp_epoll_wait failed! ret: %d\n", nevents);
-			}
-			done[core] = TRUE;
-			break;
-		} else {
-			ctx->stat.events += nevents;
-		}
-
-		if (nevents < 0) {
-			fprintf(stderr, "mtcp_epoll_wait ERROR!\n");
-			done[core] = TRUE;
-			break;
-		} else {
-			ctx->stat.events += nevents;
-		}
-
-		for (i=0; i<nevents; i++) {
-			if (events[i].events & MTCP_EPOLLERR) {
-
-			} else if (events[i].events & MTCP_EPOLLIN) {
-				fprintf(stderr, "No EPOLLIN sent, but there is EPOLLIN.\n");
-			} else if (events[i].events == MTCP_EPOLLOUT) {
-				struct client_vars *wv = &wvars[events[i].data.sockid];
-				if (!wv->request_sent) {
-					SendData(ctx, events[i].data.sockid, wv);
-				} else {
-					//TRACE_DBG("Request already sent.\n");
-				}
-			} else {
-				assert(0);
-			}
-		}
-	}
-}
-
-/*----------------------------------------------------------------------------*/
 int
 main(int argc, char **argv) 
 {
-	int ret;
-	int process_cpu;
+	int ret, i, c;
+
+	//mtcp
+	mctx_t mctx;
 	struct mtcp_conf mcfg;
-	while (-1 != (o = getopt(argc, argv, "N:c:o:n:f:"))) {
-		switch (o) {
-			case 'p':
-				port_number = mystrtol(optarg, 10);
-				break;
-			case 'b':
-				backlog = mystrtol(optarg, 10);
-				break;
-			case 'f':
-				conf_file = optarg;
-				break;
+	struct thread_context *ctx;
+	struct mtcp_epoll_event *events;
+	struct mtcp_epoll_event ev;
+	int core = 0;
+	int ep_id;
+
+	// sockets
+	struct sockaddr_in saddr, daddr;
+	int sockfd;
+	int backlog = 3;
+
+	// counters
+	int sec_to_send;
+	int wrote        = 0,
+		read         = 0,
+		bytes_sent   = 0,
+		events_ready = 0,
+		nevents      = 0,
+		sent_close   = 0;
+
+	// time
+	double elapsed_time = 0.0;
+	struct timeval t1, t2;
+	struct timespec ts_start, now;
+	time_t end_time;
+
+	// send buffer
+	char buf[BUF_LEN];
+	char rcvbuf[BUF_LEN];
+
+	// args
+	int mode = 0;
+
+	if (argc < 2) {
+		print_usage(0);
+		return -1;
+	}
+
+	if (strncmp(argv[1], "send", 4) == 0) {   
+		if (argc < 5) { 
+			print_usage(SEND_MODE);
+			return -1;
 		}
+
+		mode = SEND_MODE;
+		DEBUG("Send mode");
+
+		// Parse command-line args 
+		daddr.sin_family = AF_INET;
+		daddr.sin_addr.s_addr = inet_addr(argv[2]);;
+		daddr.sin_port = htons(atoi(argv[3]));
+		sec_to_send = atoi(argv[4]);
+
+	} else if (strncmp(argv[1], "wait", 4) == 0) {
+		if (argc < 3) {
+			print_usage(WAIT_MODE);
+			return -1;
+		}
+		
+		mode = WAIT_MODE;
+		DEBUG("Wait mode");
+		
+		// saddr.sin_family = AF_INET;
+		// saddr.sin_addr.s_addr = inet_addr(argv[2]);
+		// saddr.sin_port = htons(atoi(argv[3]));
+		sec_to_send = atoi(argv[2]);
+		
+	} else {
+		ERROR("Unknown mode \"%s\"", argv[1]);
+		print_usage(0);
+	}
+	
+	if (mode == 0) {
+		return -1;
 	}
 
-	if (total_flow < core_limit) {
-		core_limit = total_flows;
-	}
-	if (total_concurrency > 0) 
-		concurrency = total_concurrency / core_limit;
 
-	/* set the max number of fds 3x larger than concurrency */
-	max_fds = concurrency * 3;
-
-#ifdef RTE_LIBRTE_PDUMP
-	/* initialize packet capture framework */
-	rte_pdump_init(NULL);
-#endif
-	if (conf_file == NULL) {
-		TRACE_ERROR("mTCP configuration file is not set!\n");
-#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(EXIT_FAILURE);
-	}
-
-	ret = mtcp_init(conf_file);
-	if (ret) {
-		TRACE_ERROR("Failed to initialize mtcp.\n");
-#ifdef RTE_LIBRTE_PDUMP
-		/* uninitialize packet capture framework */
-		rte_pdump_uninit();
-#endif
-		exit(EXIT_FAILURE);
-	}
-
+	// This must be done before mtcp_init
 	mtcp_getconf(&mcfg);
-	mcfg.max_concurrency = max_fds;
-	mcfg.max_num_buffers = max_fds;
+	mcfg.num_cores = 1;
+	mtcp_setconf(&mcfg);
+	// Seed RNG
+	srand(time(NULL));
+
+	// Init mtcp
+	DEBUG("Initializing mtcp...\n");
+	if (mtcp_init("client.conf")) {
+		ERROR("Failed to initialize mtcp.\n");
+		return -1;
+	}
+
+	// Default simple config, this must be done after mtcp_init
+	mtcp_getconf(&mcfg);
+	mcfg.max_concurrency = 3 * CONCURRENCY;
+	mcfg.max_num_buffers = 3 * CONCURRENCY;
 	mtcp_setconf(&mcfg);
 
+	// Catch ctrl+c to clean up
 	mtcp_register_signal(SIGINT, SignalHandler);
 
-	flow_per_thread = total_flows / core_limit;
-	flow_remainder_cnt = total_flows % core_limit;
+	DEBUG("Creating thread context...");
+	mtcp_core_affinitize(core);
+	ctx = (struct thread_context *) calloc(1, sizeof(struct thread_context));
+	if (!ctx) {
+		ERROR("Failed to create context.");
+		perror("calloc");
+		return -1;
+	}
+	ctx->core = core;
+	ctx->mctx = mtcp_create_context(core);
+	if (!ctx->mctx) {
+		ERROR("Failed to create mtcp context.");
+		return -1;
+	}
+	mctx = ctx->mctx;
 
-	for (i=0; i<1; i++) {
-		cores[i] = i;
-		done[i] = FALSE;
-		flows[i] = flow_per_thread;
-		if (flow_remainder_cnt-- > 0)
-			flows[i]++;
+	if (mode == SEND_MODE) {
+		// Create pool of TCP source ports for outgoing conns
+		DEBUG("Creating pool of TCP source ports...");
+		mtcp_init_rss(mctx, INADDR_ANY, IP_RANGE, daddr.sin_addr.s_addr, daddr.sin_port);
+	}
 
-		if (flows[i] == 0)
-			continue;
+	DEBUG("Creating epoller...");
+	ep_id = mtcp_epoll_create(ctx->mctx, mcfg.max_num_buffers);
+	events = (struct mtcp_epoll_event *) calloc(mcfg.max_num_buffers, sizeof(struct mtcp_epoll_event));
+	if (!events) {
+		ERROR("Failed to allocate events.");
+		return -1;
+	}
 
-		if (pthread_create(&app_thread[i], 
-					NULL, RunWgetMain, (void *)&cores[i])) {
-			perror("pthread_create");
-			TRACE_ERROR("Failed to create client thread.\n");
-#ifdef RTE_LIBRTE_PDUMP
-			/* uninitialize packet capture framework */
-			rte_pdump_uninit();
-#endif
-			exit(-1);
+
+	DEBUG("Creating socket...");
+	sockfd = mtcp_socket(mctx, AF_INET, SOCK_STREAM, 0);
+	if (sockfd < 0) {
+		ERROR("Failed to create socket.");
+		return -1;
+	}
+
+	ret = mtcp_setsock_nonblock(mctx, sockfd);
+	if (ret < 0) {
+		ERROR("Failed to set socket in nonblocking mode.");
+		return -1;
+	}
+
+	ev.events = MTCP_EPOLLIN;
+	ev.data.sockid = sockfd;
+	mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_ADD, sockfd, &ev);
+
+	if (mode == WAIT_MODE) {
+		ret = mtcp_bind(mctx, sockfd, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
+		if (ret < 0) {
+			ERROR("Failed to bind to the listening socket.");
+		}
+
+		ret = mtcp_listen(mctx, sockfd, backlog);
+		if (ret < 0) {
+			ERROR("Failed to listen: %s", strerror(errno));
+		}
+
+		while (1) { // loop until connected to a server, break when we can send
+			nevents = mtcp_epoll_wait(mctx, ep_id, events, MAX_EVENTS, -1);
+			if (nevents < 0) {
+				if (errno != EINTR) {
+					perror("mtcp_epoll_wait");
+				}
+				return -1;
+			}
+
+			for (i = 0; i < nevents; i++) {
+				if (events[i].data.sockid == sockfd) {
+					c = mtcp_accept(mctx, sockfd, NULL, NULL);
+					if (c >= 0) {
+						if (c >= MAX_FLOW_NUM) {
+							ERROR("Invalid socket id %d.", c);
+						}
+						DEBUG("Accepted new connection");
+					} else {
+						ERROR("mtcp_accept() %s", strerror(errno));
+					}
+					mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_DEL, sockfd, &ev);
+					sockfd = c;
+					ev.events = MTCP_EPOLLIN | MTCP_EPOLLOUT;
+					ev.data.sockid = sockfd;
+					mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_ADD, sockfd, &ev);
+					goto end_wait_loop;
+				} else {
+					ERROR("Received event on unknown socket.");
+				}
+			}
 		}
 	}
-	for (i=0; i<1; i++) {
-		pthread_join(app_thread[i], NULL);
-		TRACE_INFO("Client thread %d joined.\n", i);
+end_wait_loop:
+
+
+	if (mode == SEND_MODE) {
+		DEBUG("Connecting socket...");
+		ret = mtcp_connect(mctx, sockfd, (struct sockaddr *)&daddr, sizeof(struct sockaddr_in));
+		if (ret < 0) {
+			ERROR("mtcp_connect failed.");
+			if (errno != EINPROGRESS) {
+				perror("mtcp_connect");
+				mtcp_close(mctx, sockfd);
+				return -1;
+			}
+		}
+		DEBUG("Connection created.");
 	}
+
+	clock_gettime(CLOCK_MONOTONIC, &ts_start);
+	end_time = ts_start.tv_sec + sec_to_send;
+
+	memset(buf, 0x90, sizeof(char) * BUF_LEN);
+	buf[BUF_LEN-1] = '\0';
+
+	while (1) {
+		wrote = mtcp_write(ctx->mctx, sockfd, buf, BUF_LEN);
+        DEBUG_PRINT("mtcp_write 1, num:%d\n", wrote);
+		bytes_sent += wrote;
+		if (wrote > 0) {
+			gettimeofday(&t1, NULL);
+            ev.events = MTCP_EPOLLOUT;
+            ev.data.sockid = sockfd;
+            mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_MOD, sockfd, &ev);
+			break;
+		}
+	}
+
+	//ev.events = MTCP_EPOLLIN | MTCP_EPOLLOUT;
+	//mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_ADD, sockfd, &ev);
+	//
+
+    
+	while (1) { // check time
+        // DEBUG_PRINT("Enter main loop\n");
+		events_ready = mtcp_epoll_wait(ctx->mctx, ep_id, events, mcfg.max_num_buffers, -1);
+        // DEBUG_PRINT("events_ready:%d\n", events_ready);
+		for (int i = 0; i < events_ready; i++) {
+			// DEBUG_PRINT("sockfd:%d, events[i].data.sockid:%d\n", sockfd, events[i].data.sockid);
+            assert(sockfd == events[i].data.sockid);
+			if (events[i].events & MTCP_EPOLLIN) {
+                DEBUG_PRINT("EPOLLIN\n");
+				read = mtcp_read(ctx->mctx, sockfd, rcvbuf, BUF_LEN);
+				if (read <= 0) {
+					continue;
+				} else {
+					DEBUG("Got FIN-ACK from receiver (%d bytes): %s", read, rcvbuf);
+					goto stop_timer; 
+				}
+			} else if (events[i].events & MTCP_EPOLLOUT) {
+                DEBUG_PRINT("EPOLLOUT\n");
+				//if (bytes_sent < sec_to_send) {
+				clock_gettime(CLOCK_MONOTONIC, &now);
+				if (now.tv_sec < end_time) {
+					wrote = mtcp_write(ctx->mctx, sockfd, buf, BUF_LEN);
+                    DEBUG_PRINT("mtcp_write 2, num:%d\n", wrote);
+					bytes_sent += wrote;
+					//DEBUG("wrote %d, total %d", wrote, bytes_sent);
+                    if (wrote > 0) {
+					    ev.events = MTCP_EPOLLOUT;
+					    ev.data.sockid = sockfd;
+					    mtcp_epoll_ctl(mctx, ep_id, MTCP_EPOLL_CTL_MOD, sockfd, &ev);
+                    }
+				} else if (!sent_close) {
+					memset(buf, 0x96, sizeof(char) * BUF_LEN);
+					mtcp_write(ctx->mctx, sockfd, buf, 1);
+                    DEBUG_PRINT("mtcp_write 3\n");
+					DEBUG("Done writing... waiting for FIN-ACK");  
+					sent_close = 1;
+				}
+			}
+		}
+	}
+
+
+stop_timer:
+	gettimeofday(&t2, NULL);
+
+	DEBUG("Done reading. Closing socket...");
+	mtcp_close(mctx, sockfd);
+	DEBUG("Socket closed.");
+
+	printf("\n\n");
+	elapsed_time = (t2.tv_sec - t1.tv_sec) * 1.0;
+	elapsed_time += (t2.tv_usec - t1.tv_usec) / 1000000.0;
+	printf("Time elapsed: %f\n", elapsed_time);
+	printf("Total bytes sent: %d\n", bytes_sent);
+	printf("Throughput: %.3fMbit/sec\n", ((bytes_sent * 8.0 / 1000000.0) / elapsed_time));
+
+	mtcp_destroy_context(ctx->mctx);
+	free(ctx);
 	mtcp_destroy();
+
 	return 0;
 }

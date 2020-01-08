@@ -1,27 +1,29 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <time.h>
-#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/queue.h>
-#include <assert.h>
-#include <stdbool.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <string.h>
+#include <time.h>
+#include <pthread.h>
+#include <signal.h>
+#include <limits.h>
 
 #include <mtcp_api.h>
 #include <mtcp_epoll.h>
+#define RTE_LIBRTE_PDUMP
+#ifdef RTE_LIBRTE_PDUMP
+#include <rte_pdump.h>
+#endif
 #include "cpu.h"
-#include "rss.h"
 #include "http_parsing.h"
+#include "netlib.h"
 #include "debug.h"
 
 //#define MAX_CPUS 		16
@@ -60,31 +62,50 @@
 
 #define SEND_MODE 		1
 #define WAIT_MODE		2
+#ifdef MDEBUG
+#define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( 0 )
+#else
+#define DEBUG_PRINT(...) do{ } while ( 0 )
+#endif
 /*----------------------------------------------------------------------------*/
-static pthread_t app_thread[MAX_CPUS];
-static char *conf_file = NULL;
-static int backlog = -1;
-static int port_number = 9000;
-
-struct server_vars {
-	char request[HTTP_HEADER_LEN];
+struct server_vars
+{
 	int recv_len;
 	int request_len;
 	long int total_read, total_sent;
 	uint8_t done;
 	uint8_t rspheader_sent;
 	uint8_t keep_alive;
-
+	uint64_t recv;
 	int fidx;						// file cache index
-	char fname[NAME_LIMIT];				// file name
 	long int fsize;					// file size
 };
-
+/*----------------------------------------------------------------------------*/
 struct thread_context
 {
 	int core;
+
 	mctx_t mctx;
+	int ep;
+	struct server_vars *svars;
+
+	int target;
+	int started;
+	int errors;
+	int incompletes;
+	int done;
+	int pending;
+
+	// struct wget_stat stat;
 };
+/*----------------------------------------------------------------------------*/
+static int num_cores;
+static int core_limit;
+static pthread_t app_thread[MAX_CPUS];
+// static int done[MAX_CPUS];
+static char *conf_file = NULL;
+static int backlog = -1;
+static int port_number = 9000;
 /*----------------------------------------------------------------------------*/
 void
 SignalHandler(int signum)
@@ -197,6 +218,18 @@ CreateListeningSocket(struct thread_context *ctx)
 	return listener;
 }
 /*----------------------------------------------------------------------------*/
+void
+CleanServerVariable(struct server_vars *sv)
+{
+	sv->recv_len = 0;
+	sv->request_len = 0;
+	sv->total_read = 0;
+	sv->total_sent = 0;
+	sv->done = 0;
+	sv->rspheader_sent = 0;
+	sv->keep_alive = 0;
+}
+/*----------------------------------------------------------------------------*/
 int 
 AcceptConnection(struct thread_context *ctx, int listener)
 {
@@ -215,6 +248,7 @@ AcceptConnection(struct thread_context *ctx, int listener)
 
 		sv = &ctx->svars[c];
 		CleanServerVariable(sv);
+		DEBUG_PRINT("New connection %d accepted.\n", c);
 		TRACE_APP("New connection %d accepted.\n", c);
 		ev.events = MTCP_EPOLLIN;
 		ev.data.sockid = c;
@@ -233,24 +267,28 @@ AcceptConnection(struct thread_context *ctx, int listener)
 }
 /*----------------------------------------------------------------------------*/
 static int 
-HandleReadEvent(struct thread_context *ctx, int sockid, struct server_vars *sv)
+HandleRecv(struct thread_context *ctx, int sockid, struct server_vars *sv)
 {
 	int rd;
-
+	char buf[BUF_LEN];
+	mctx_t mctx = ctx->mctx;
 	rd = 1;
 	while (rd > 0) {
+		DEBUG_PRINT("mtcp read start\n");
 		rd = mtcp_read(mctx, sockid, buf, BUF_SIZE);
 		if (rd <= 0)
 			break;
-		ctx->stat.reads += rd;
+		// ctx->stat.reads += rd;
+		if (buf[strlen(buf) - 1] == '\x96')
+			break;
 
 		TRACE_APP("Socket %d: mtcp_read ret: %d, total_recv: %lu, "
 				"header_set: %d, header_len: %u, file_len: %lu\n", 
-				sockid, rd, wv->recv + rd, 
-				wv->headerset, wv->header_len, wv->file_len);
+				sockid, rd, sv->recv + rd, 
+				sv->headerset, sv->header_len, sv->file_len);
 
 		// pbuf = buf;
-		wv->recv += rd;
+		sv->recv += rd;
 	}
 	return 0;
 }
@@ -260,9 +298,13 @@ RunServerThread(void *arg)
 {
 	int core = *(int *)arg;
 	struct thread_context *ctx;
-	struct mtcp_epoll_event *events;
 	mctx_t mctx;
+	int listener;
 	int ep;
+	struct mtcp_epoll_event *events;
+	int nevents;
+	int i, ret;
+	int do_accept;
 
 	ctx = InitializeServerThread(core);
 	if (!ctx) {
@@ -294,25 +336,28 @@ RunServerThread(void *arg)
 		exit(-1);
 	}
 
-	while (!done[core]) {
-	// while (1) {
+	// while (!done[core]) {
+	while (1) {
 		nevents = mtcp_epoll_wait(mctx, ep, events, MAX_EVENTS, -1);
+		DEBUG_PRINT("events:%d\n", nevents);
 		if (nevents < 0) {
 			// if (errno)
-			fprintf(stderr, "mtcp_epoll_wait ERROR!\n");
+			DEBUG_PRINT("mtcp_epoll_wait ERROR!\n");
 			break;
 		}
 		do_accept = FALSE;
 		for (i=0; i<nevents; i++) {
 			if (events[i].data.sockid == listener) {
+				DEBUG_PRINT("Accept\n");
 				/* if the event is for the listener, accept connection */
 				do_accept = TRUE;
 			}
 			else if (events[i].events & MTCP_EPOLLERR) {
-
+				DEBUG_PRINT("EPOLLERR\n");
 			}
 			else if (events[i].events & MTCP_EPOLLIN) {
-				ret = HandleReadEvent(ctx, events[i].data.sockid, 
+				DEBUG_PRINT("EPOLLIN\n");
+				ret = HandleRecv(ctx, events[i].data.sockid, 
 						&ctx->svars[events[i].data.sockid]);
 				if (ret == 0) {
 
@@ -322,28 +367,34 @@ RunServerThread(void *arg)
 				}
 			}
 			else if (events[i].events & MTCP_EPOLLOUT) {
+				DEBUG_PRINT("EPOLLOUT\n");
 				fprintf(stderr, "No EPOLLOUT sent, but there is EPOLLOUT.\n");
 			}
 			else {
+				DEBUG_PRINT("Others\n");
 				assert(0);
 			}
 		}
 		if (do_accept) {
 			while (1) {
 				ret = AcceptConnection(ctx, listener);
+				DEBUG_PRINT("accept ret:%d\n", ret);
 				if (ret < 0)
 					break;
 			}
 		}
 	}
+	return NULL;
 }
 /*----------------------------------------------------------------------------*/
 int
 main(int argc, char **argv) 
 {
 	int ret;
-	int process_cpu;
 	struct mtcp_conf mcfg;
+	int cores[MAX_CPUS];
+	int process_cpu;
+	int i, o;
 
 	num_cores = GetNumCPUs();
 	core_limit = num_cores;
@@ -359,6 +410,22 @@ main(int argc, char **argv)
 				break;
 			case 'b':
 				backlog = mystrtol(optarg, 10);
+				break;
+			case 'N':
+				core_limit = mystrtol(optarg, 10);
+				if (core_limit > num_cores) {
+					TRACE_CONFIG("CPU limit should be smaller than the "
+						     "number of CPUs: %d\n", num_cores);
+					return FALSE;
+				}
+				/** 
+				 * it is important that core limit is set 
+				 * before mtcp_init() is called. You can
+				 * not set core_limit after mtcp_init()
+				 */
+				mtcp_getconf(&mcfg);
+				mcfg.num_cores = core_limit;
+				mtcp_setconf(&mcfg);
 				break;
 			case 'f':
 				conf_file = optarg;
@@ -418,6 +485,5 @@ main(int argc, char **argv)
 	}
 
 	mtcp_destroy();
-	closedir(dir);
 	return 0;
 }
