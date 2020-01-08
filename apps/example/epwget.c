@@ -38,7 +38,7 @@
 #define MAX_IP_STR_LEN 16
 
 #define BUF_SIZE (8*1024)
-
+#define BUF_LEN 		8192
 #define CALC_MD5SUM FALSE
 
 #define TIMEVAL_TO_MSEC(t)		((t.tv_sec * 1000) + (t.tv_usec / 1000))
