@@ -13,8 +13,10 @@
 #define SECONDS_TO_USECS(seconds) ((seconds) / 1000000.0)
 #define USECS_TO_MS(us) ((us) / 1000)
 #define BYTES_TO_BITS(bytes) ((bytes) / 8.0)
+#define BITS_TO_BYTES(bits) ((bits) * 8.0)
 #define BPS_TO_MBPS(bps) ((bps) / 8000000.0)
 #define UNSHIFT_RTT(srtt) ((srtt) * 125.0)
+#define UNSHIFT_SRTT(srtt) ((srtt) * 125.0)
 
 struct tcp_timestamp
 {

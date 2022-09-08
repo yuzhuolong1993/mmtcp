@@ -3,7 +3,7 @@
 #include "eth_out.h"
 #include "arp.h"
 #include "debug.h"
-#undef MS_RATE_CAL
+// #undef MS_RATE_CAL
 /*----------------------------------------------------------------------------*/
 inline int
 GetOutputInterface(uint32_t daddr, uint8_t *is_external)
@@ -40,7 +40,7 @@ GetOutputInterface(uint32_t daddr, uint8_t *is_external)
 #ifdef MS_RATE_CAL // ** put in flow_id actually
 uint32_t
 get_tenant(uint32_t flow_id) {
-	static uint32_t tenant_group[13] = {0, 1,1,1,1, 2,2, 3,3, 4};
+	static uint32_t tenant_group[13] = {0, 9,1,1,1,1, 2,2, 3,3, 4,4, 5};
 	return tenant_group[flow_id];
 }
 #endif
@@ -74,8 +74,9 @@ IPOutputStandalone(struct mtcp_manager *mtcp, uint8_t protocol,
 #ifdef MS_RATE_CAL // ** put in flow_id actually
 	uint32_t flow_id = 0;
 	uint32_t tenant_id = 0;
-	flow_id = daddr & 0xFF;
+	flow_id = ntohl(saddr) & 0xFF;
 	tenant_id = get_tenant(flow_id);
+	// fprintf(stderr, "saddr:%d, flow_id:%d, tenant_id:%d\n", saddr, flow_id, tenant_id);
 	iph = (struct iphdr *)EthernetOutputWithFlowID(mtcp, 
 			ETH_P_IP, nif, haddr, payloadlen + IP_HEADER_LEN, flow_id, tenant_id);
 #else
@@ -161,8 +162,9 @@ IPOutput(struct mtcp_manager *mtcp, tcp_stream *stream, uint16_t tcplen)
 #ifdef MS_RATE_CAL // ** put in flow_id actually
 	uint32_t flow_id = 0;
 	uint32_t tenant_id = 0;
-	flow_id = stream->daddr & 0xFF;
+	flow_id = ntohl(stream->saddr) & 0xFF;
 	tenant_id = get_tenant(flow_id);
+	// fprintf(stderr, "saddr:%d, flow_id:%d, tenant_id:%d\n", stream->saddr, flow_id, tenant_id);
 	iph = (struct iphdr *)EthernetOutputWithFlowID(mtcp, ETH_P_IP, 
 			stream->sndvar->nif_out, haddr, tcplen + IP_HEADER_LEN, flow_id, tenant_id);
 #else

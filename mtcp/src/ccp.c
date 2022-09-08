@@ -8,6 +8,7 @@
 #include "tcp_stream.h"
 #include "debug.h"
 #include "clock.h"
+#include "tcp_util.h"
 #if USE_CCP
 #include "ccp.h"
 #include "libccp/ccp.h"

@@ -1,19 +1,3 @@
-#!/usr/bin/env bash
-
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-export RTE_SDK=$PWD/dpdk
-export RTE_TARGET=x86_64-native-linuxapp-gcc
-
-printf "${GREEN}Running dpdk_setup.sh...\n $NC"
-if grep "ldflags.txt" $RTE_SDK/mk/rte.app.mk > /dev/null
-then
-    :
-else
-    sed -i -e 's/O_TO_EXE_STR =/\$(shell if [ \! -d \${RTE_SDK}\/\${RTE_TARGET}\/lib ]\; then mkdir \${RTE_SDK}\/\${RTE_TARGET}\/lib\; fi)\nLINKER_FLAGS = \$(call linkerprefix,\$(LDLIBS))\n\$(shell echo \${LINKER_FLAGS} \> \${RTE_SDK}\/\${RTE_TARGET}\/lib\/ldflags\.txt)\nO_TO_EXE_STR =/g' $RTE_SDK/mk/rte.app.mk
-fi
-
 #! /bin/bash
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright(c) 2010-2014 Intel Corporation
@@ -21,6 +5,19 @@ fi
 #
 # Run with "source /path/to/dpdk-setup.sh"
 #
+
+#
+# Change to DPDK directory ( <this-script's-dir>/.. ), and export it as RTE_SDK
+#
+
+PCI_PATH="0000:05:00.0"
+Pages=2048
+
+cd $(dirname ${BASH_SOURCE[0]})/..
+export RTE_SDK=$PWD
+echo "------------------------------------------------------------------------------"
+echo " RTE_SDK exported as $RTE_SDK"
+echo "------------------------------------------------------------------------------"
 
 HUGEPGSZ=`cat /proc/meminfo  | grep Hugepagesize | cut -d : -f 2 | tr -d ' '`
 
@@ -96,11 +93,11 @@ setup_target()
 create_mnt_huge()
 {
     echo "Creating /mnt/huge and mounting as hugetlbfs"
-    echo $passwd | sudo -S mkdir -p /mnt/huge
+    sudo mkdir -p /mnt/huge
 
     grep -s '/mnt/huge' /proc/mounts > /dev/null
     if [ $? -ne 0 ] ; then
-        echo $passwd | sudo -S mount -t hugetlbfs nodev /mnt/huge
+        sudo mount -t hugetlbfs nodev /mnt/huge
     fi
 }
 
@@ -112,11 +109,11 @@ remove_mnt_huge()
     echo "Unmounting /mnt/huge and removing directory"
     grep -s '/mnt/huge' /proc/mounts > /dev/null
     if [ $? -eq 0 ] ; then
-        echo $passwd | sudo -S umount /mnt/huge
+        sudo umount /mnt/huge
     fi
 
     if [ -d /mnt/huge ] ; then
-        echo $passwd | sudo -S rm -R /mnt/huge
+        sudo rm -R /mnt/huge
     fi
 }
 
@@ -128,7 +125,7 @@ remove_igb_uio_module()
     echo "Unloading any existing DPDK UIO module"
     /sbin/lsmod | grep -s igb_uio > /dev/null
     if [ $? -eq 0 ] ; then
-        echo $passwd | sudo -S /sbin/rmmod igb_uio
+        sudo /sbin/rmmod igb_uio
     fi
 }
 
@@ -150,7 +147,7 @@ load_igb_uio_module()
         modinfo uio > /dev/null
         if [ $? -eq 0 ]; then
             echo "Loading uio module"
-            echo $passwd | sudo -S /sbin/modprobe uio
+            sudo /sbin/modprobe uio
         fi
     fi
 
@@ -158,7 +155,7 @@ load_igb_uio_module()
     # be loaded.
 
     echo "Loading DPDK UIO module"
-    echo $passwd | sudo -S /sbin/insmod $RTE_SDK/$RTE_TARGET/kmod/igb_uio.ko
+    sudo /sbin/insmod $RTE_SDK/$RTE_TARGET/kmod/igb_uio.ko
     if [ $? -ne 0 ] ; then
         echo "## ERROR: Could not load kmod/igb_uio.ko."
         quit
@@ -173,9 +170,9 @@ remove_vfio_module()
     echo "Unloading any existing VFIO module"
     /sbin/lsmod | grep -s vfio > /dev/null
     if [ $? -eq 0 ] ; then
-        echo $passwd | sudo -S /sbin/rmmod vfio-pci
-        echo $passwd | sudo -S /sbin/rmmod vfio_iommu_type1
-        echo $passwd | sudo -S /sbin/rmmod vfio
+        sudo /sbin/rmmod vfio-pci
+        sudo /sbin/rmmod vfio_iommu_type1
+        sudo /sbin/rmmod vfio
     fi
 }
 
@@ -192,13 +189,13 @@ load_vfio_module()
     /sbin/lsmod | grep -s vfio_pci > /dev/null
     if [ $? -ne 0 ] ; then
         if [ -f /lib/modules/$(uname -r)/$VFIO_PATH ] ; then
-            echo $passwd | sudo -S /sbin/modprobe vfio-pci
+            sudo /sbin/modprobe vfio-pci
         fi
     fi
 
     # make sure regular users can read /dev/vfio
     echo "chmod /dev/vfio"
-    echo $passwd | sudo -S chmod a+x /dev/vfio
+    sudo chmod a+x /dev/vfio
     if [ $? -ne 0 ] ; then
         echo "FAIL"
         quit
@@ -221,7 +218,7 @@ remove_kni_module()
     echo "Unloading any existing DPDK KNI module"
     /sbin/lsmod | grep -s rte_kni > /dev/null
     if [ $? -eq 0 ] ; then
-        echo $passwd | sudo -S /sbin/rmmod rte_kni
+        sudo /sbin/rmmod rte_kni
     fi
 }
 
@@ -242,7 +239,7 @@ load_kni_module()
 
     # Now try load the KNI module.
     echo "Loading DPDK KNI module"
-    echo $passwd | sudo -S /sbin/insmod $RTE_SDK/$RTE_TARGET/kmod/rte_kni.ko
+    sudo /sbin/insmod $RTE_SDK/$RTE_TARGET/kmod/rte_kni.ko
     if [ $? -ne 0 ] ; then
         echo "## ERROR: Could not load kmod/rte_kni.ko."
         quit
@@ -256,7 +253,7 @@ set_vfio_permissions()
 {
     # make sure regular users can read /dev/vfio
     echo "chmod /dev/vfio"
-    echo $passwd | sudo -S chmod a+x /dev/vfio
+    sudo chmod a+x /dev/vfio
     if [ $? -ne 0 ] ; then
         echo "FAIL"
         quit
@@ -265,7 +262,7 @@ set_vfio_permissions()
 
     # make sure regular user can access everything inside /dev/vfio
     echo "chmod /dev/vfio/*"
-    echo $passwd | sudo -S chmod 0666 /dev/vfio/*
+    sudo chmod 0666 /dev/vfio/*
     if [ $? -ne 0 ] ; then
         echo "FAIL"
         quit
@@ -308,7 +305,7 @@ clear_huge_pages()
         echo "echo 0 > $d/hugepages/hugepages-${HUGEPGSZ}/nr_hugepages" >> .echo_tmp
     done
     echo "Removing currently reserved hugepages"
-    echo $passwd | sudo -S sh .echo_tmp
+    sudo sh .echo_tmp
     rm -f .echo_tmp
 
     remove_mnt_huge
@@ -326,12 +323,11 @@ set_non_numa_pages()
     echo "  Example: to have 128MB of hugepages available in a 2MB huge page system,"
     echo "  enter '64' to reserve 64 * 2MB pages"
     echo -n "Number of pages: "
-    Pages=2048
 
     echo "echo $Pages > /sys/kernel/mm/hugepages/hugepages-${HUGEPGSZ}/nr_hugepages" > .echo_tmp
 
     echo "Reserving hugepages"
-    echo $passwd | sudo -S sh .echo_tmp
+    sudo sh .echo_tmp
     rm -f .echo_tmp
 
     create_mnt_huge
@@ -353,11 +349,10 @@ set_numa_pages()
     for d in /sys/devices/system/node/node? ; do
         node=$(basename $d)
         echo -n "Number of pages for $node: "
-        Pages=2048
         echo "echo $Pages > $d/hugepages/hugepages-${HUGEPGSZ}/nr_hugepages" >> .echo_tmp
     done
     echo "Reserving hugepages"
-    echo $passwd | sudo -S sh .echo_tmp
+    sudo sh .echo_tmp
     rm -f .echo_tmp
 
     create_mnt_huge
@@ -374,7 +369,7 @@ run_test_app()
     echo -n "bitmask: "
     read Bitmask
     echo "Launching app"
-    echo $passwd | sudo -S ${RTE_TARGET}/app/test -c $Bitmask $EAL_PARAMS
+    sudo ${RTE_TARGET}/app/test -c $Bitmask $EAL_PARAMS
 }
 
 #
@@ -388,7 +383,7 @@ run_testpmd_app()
     echo -n "bitmask: "
     read Bitmask
     echo "Launching app"
-    echo $passwd | sudo -S ${RTE_TARGET}/app/testpmd -c $Bitmask $EAL_PARAMS -- -i
+    sudo ${RTE_TARGET}/app/testpmd -c $Bitmask $EAL_PARAMS -- -i
 }
 
 #
@@ -422,8 +417,7 @@ bind_devices_to_vfio()
         ${RTE_SDK}/usertools/dpdk-devbind.py --status
         echo ""
         echo -n "Enter PCI address of device to bind to VFIO driver: "
-        PCI_PATH="0000:05:00.0"
-        echo $passwd | sudo -S ${RTE_SDK}/usertools/dpdk-devbind.py -b vfio-pci $PCI_PATH &&
+        sudo ${RTE_SDK}/usertools/dpdk-devbind.py -b vfio-pci $PCI_PATH &&
             echo "OK"
     else
         echo "# Please load the 'vfio-pci' kernel module before querying or "
@@ -440,8 +434,7 @@ bind_devices_to_igb_uio()
         ${RTE_SDK}/usertools/dpdk-devbind.py --status
         echo ""
         echo -n "Enter PCI address of device to bind to IGB UIO driver: "
-        PCI_PATH="0000:05:00.0"
-        echo $passwd | sudo -S ${RTE_SDK}/usertools/dpdk-devbind.py -b igb_uio $PCI_PATH && echo "OK"
+        sudo ${RTE_SDK}/usertools/dpdk-devbind.py -b igb_uio $PCI_PATH && echo "OK"
     else
         echo "# Please load the 'igb_uio' kernel module before querying or "
         echo "# adjusting device bindings"
@@ -456,68 +449,125 @@ unbind_devices()
     ${RTE_SDK}/usertools/dpdk-devbind.py --status
     echo ""
     echo -n "Enter PCI address of device to unbind: "
-    PCI_PATH="0000:05:00.0"
     echo ""
     echo -n "Enter name of kernel driver to bind the device to: "
     read DRV
-    echo $passwd | sudo -S ${RTE_SDK}/usertools/dpdk-devbind.py -b $DRV $PCI_PATH && echo "OK"
+    sudo ${RTE_SDK}/usertools/dpdk-devbind.py -b $DRV $PCI_PATH && echo "OK"
 }
 
-bind_dpdk() {
-    bind_devices_to_igb_uio
+#
+# Options for building a target. Note that this step MUST be first as it sets
+# up TARGETS[] starting from 1, and this is accessed in setup_target using the
+# user entered option.
+#
+step1_func()
+{
+    TITLE="Select the DPDK environment to build"
+    CONFIG_NUM=1
+    for cfg in config/defconfig_* ; do
+        cfg=${cfg/config\/defconfig_/}
+        TEXT[$CONFIG_NUM]="$cfg"
+        TARGETS[$CONFIG_NUM]=$cfg
+        FUNC[$CONFIG_NUM]="setup_target"
+        let "CONFIG_NUM+=1"
+    done
 }
 
-setup_dpdk() {
-    # insert Insert IGB UIO module
-    load_igb_uio_module
+#
+# Options for setting up environment.
+#
+step2_func()
+{
+    TITLE="Setup linuxapp environment"
 
-    # set hugepage mapping
-    set_numa_pages
+    TEXT[1]="Insert IGB UIO module"
+    FUNC[1]="load_igb_uio_module"
 
-    # bind device
-    bind_devices_to_igb_uio
+    TEXT[2]="Insert VFIO module"
+    FUNC[2]="load_vfio_module"
+
+    TEXT[3]="Insert KNI module"
+    FUNC[3]="load_kni_module"
+
+    TEXT[4]="Setup hugepage mappings for non-NUMA systems"
+    FUNC[4]="set_non_numa_pages"
+
+    TEXT[5]="Setup hugepage mappings for NUMA systems"
+    FUNC[5]="set_numa_pages"
+
+    TEXT[6]="Display current Ethernet/Crypto device settings"
+    FUNC[6]="show_devices"
+
+    TEXT[7]="Bind Ethernet/Crypto device to IGB UIO module"
+    FUNC[7]="bind_devices_to_igb_uio"
+
+    TEXT[8]="Bind Ethernet/Crypto device to VFIO module"
+    FUNC[8]="bind_devices_to_vfio"
+
+    TEXT[9]="Setup VFIO permissions"
+    FUNC[9]="set_vfio_permissions"
 }
 
-option="${1}"
-case ${option} in
-    show_device)
-        show_devices
-        ;;
-    setup_dpdk)
-        setup_dpdk
-        ;;
-    bind_dpdk)
-        bind_dpdk
-        ;;
-    unbind_dpdk)
-        unbind_devices
-        ;;
-    *)  echo "usage:"
-        echo "  ./tools.sh show_device: show device"
-        echo "  ./tools.sh setup_dpdk: setup dpdk"
-        echo "  ./tools.sh bind_dpdk: bind dpdk"
-        echo "  ./tools.sh unbind_dpdk: unbind dpdk"
-esac
+#
+# Options for running applications.
+#
+step3_func()
+{
+    TITLE="Run test application for linuxapp environment"
 
+    TEXT[1]="Run test application (\$RTE_TARGET/app/test)"
+    FUNC[1]="run_test_app"
 
+    TEXT[2]="Run testpmd application in interactive mode (\$RTE_TARGET/app/testpmd)"
+    FUNC[2]="run_testpmd_app"
+}
 
-# Check if you are using an Intel NIC
-# while true; do
-#     read -p "Are you using an Intel NIC (y/n)? " response
-#     case $response in
-# 	[Yy]* ) break;;
-# 	[Nn]* ) exit;;
-#     esac
-# done
+#
+# Other options
+#
+step4_func()
+{
+    TITLE="Other tools"
 
-# Create interfaces
-printf "Creating ${GREEN}dpdk$NC interface entries\n"
-cd dpdk-iface-kmod
-make
-if lsmod | grep dpdk_iface &> /dev/null ; then
-    :
-else    
-    echo $passwd | sudo -S insmod ./dpdk_iface.ko
-fi
-echo $passwd | sudo -S -E make run
-cd ..
+    TEXT[1]="List hugepage info from /proc/meminfo"
+    FUNC[1]="grep_meminfo"
+
+}
+
+#
+# Options for cleaning up the system
+#
+step5_func()
+{
+    TITLE="Uninstall and system cleanup"
+
+    TEXT[1]="Unbind devices from IGB UIO or VFIO driver"
+    FUNC[1]="unbind_devices"
+
+    TEXT[2]="Remove IGB UIO module"
+    FUNC[2]="remove_igb_uio_module"
+
+    TEXT[3]="Remove VFIO module"
+    FUNC[3]="remove_vfio_module"
+
+    TEXT[4]="Remove KNI module"
+    FUNC[4]="remove_kni_module"
+
+    TEXT[5]="Remove hugepage mappings"
+    FUNC[5]="clear_huge_pages"
+}
+
+STEPS[1]="step1_func"
+STEPS[2]="step2_func"
+STEPS[3]="step3_func"
+STEPS[4]="step4_func"
+STEPS[5]="step5_func"
+
+QUIT=0
+
+our_entry=18
+${OPTIONS[our_entry]} ${our_entry}
+our_entry=22
+${OPTIONS[our_entry]} ${our_entry}
+our_entry=24
+${OPTIONS[our_entry]} ${our_entry}
